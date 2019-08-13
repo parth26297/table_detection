@@ -30,7 +30,7 @@ def extract_table(image_dir, file, tables_dir, num_pages=2):
             continue
         tables_found += 1
         table = extract_text(grayed[y:y + h, x:x + w], joint_contours)
-        table.to_csv(os.path.join(output_dir, "%s.csv" % tables_found), index=False, sep="|")
+        # table.to_csv(os.path.join(output_dir, "%s.csv" % tables_found), index=False, sep="|")
 
 
 def get_lines(grayed, horizontal_scale, vertical_scale):

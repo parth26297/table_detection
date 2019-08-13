@@ -1,8 +1,7 @@
 from collections import defaultdict
 from functools import reduce
 import cv2
-import numpy as np
-
+import pandas as pd
 import pytesseract
 
 
@@ -30,18 +29,14 @@ def extract_text(table, contours):
                 cell = table[top_y:bottom_y, left_x:right_x]
                 image = cell.copy()
                 (origH, origW) = image.shape[:2]
-                (newW, newH) = (int(origW), int(origH*0.75))
+                (newW, newH) = (int(origW*1.2), int(origH*1.2))
                 image = cv2.resize(image, (newW, newH))
-                # image = cv2.medianBlur(image, 1)
-                # cv2.imshow("cell", image)
-                # cv2.waitKey()
-                # cv2.destroyAllWindows()
-                text = pytesseract.image_to_string(image, config='--oem 1 --tessdata-dir "/home/parth/Desktop/work/Recruvia/table-recognition/resources/tessdata/" --psm 6')
+                image = cv2.threshold(image, 124, 255, cv2.THRESH_TRUNC)[1]
+                text = pytesseract.image_to_string(image, config='--oem 1 --tessdata-dir "../resources/tessdata/" --psm 6')
                 cell_values.append(text)
         if len(cell_values) > 0:
             row_values.append(cell_values[::-1])
 
     table = row_values[::-1]
-    print(table)
-    # return pd.DataFrame(data=table[1:], columns=table[0])
+    return pd.DataFrame(data=table[1:], columns=table[0])
 

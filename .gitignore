@@ -2,3 +2,6 @@ resources/
 venv/
 .idea/
 src/__pycache__/
+resources/pdf/
+resources/pdf-image/
+resources/tables/

@@ -8,5 +8,5 @@ if __name__ == '__main__':
     tables_dir = '../resources/tables'
     files = os.listdir(input_dir)
     for file in files:
-        image_filename, num_pages = convert_pdf_to_image(input_dir, file, output_dir)
-        extract_table(output_dir, image_filename, tables_dir, num_pages)
+        image, num_pages = convert_pdf_to_image(input_dir, file, output_dir)
+        extract_table(file.replace(".pdf", ""), tables_dir, num_pages, image)

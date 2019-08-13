@@ -4,12 +4,11 @@ import cv2
 from src.extract_text import extract_text
 
 
-def extract_table(image_dir, file, tables_dir, num_pages=2):
+def extract_table(file, tables_dir, num_pages, src):
     output_dir = os.path.join(tables_dir, file.replace(".jpg", ""))
     os.makedirs(output_dir, exist_ok=True)
-    src = cv2.imread(os.path.join(image_dir, file))
     grayed = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
-    scale = 30
+    scale = 60
     vertical, horizontal = get_lines(grayed, scale, num_pages * scale)
 
     mask = vertical + horizontal

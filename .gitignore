@@ -1,4 +1,5 @@
-resources/
+resources/pdf
+resources/tables
 venv/
 .idea/
 src/__pycache__/

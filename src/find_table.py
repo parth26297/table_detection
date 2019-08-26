@@ -1,5 +1,6 @@
 import os
 import cv2
+import numpy as np
 
 from src.extract_text import extract_text
 
@@ -8,7 +9,7 @@ def extract_table(file, tables_dir, num_pages, src):
     output_dir = os.path.join(tables_dir, file.replace(".jpg", ""))
     os.makedirs(output_dir, exist_ok=True)
     grayed = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
-    scale = 60
+    scale = 120
     vertical, horizontal = get_lines(grayed, scale, num_pages * scale)
 
     mask = vertical + horizontal
@@ -27,6 +28,7 @@ def extract_table(file, tables_dir, num_pages, src):
         joint_contours, _ = cv2.findContours(roi, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
         if len(joint_contours) <= 4 or h >= 0.75*(vertical.shape[0]/num_pages):
             continue
+
         tables_found += 1
         table = extract_text(grayed[y:y + h, x:x + w], joint_contours)
         table.to_csv(os.path.join(output_dir, "%s.csv" % tables_found), index=False, sep="|")
@@ -43,12 +45,14 @@ def get_lines(grayed, horizontal_scale, vertical_scale):
     horizontal_structure = cv2.getStructuringElement(cv2.MORPH_RECT, (horizontal_size, 1))
     cv2.erode(horizontal, horizontal_structure, horizontal, iterations=5)
     cv2.dilate(horizontal, horizontal_structure, horizontal, iterations=5)
+    horizontal = np.roll(horizontal, -5)
 
     # vertical line
     vertical_size = vertical.shape[0] // vertical_scale
     vertical_structure = cv2.getStructuringElement(cv2.MORPH_RECT, (1, vertical_size))
     cv2.erode(vertical, vertical_structure, vertical, iterations=5)
     cv2.dilate(vertical, vertical_structure, vertical, iterations=5)
+    vertical = np.roll(vertical, -5, axis=0)
 
     return vertical, horizontal
 

@@ -1,37 +1,95 @@
-import os
+from statistics import mode
+
 import cv2
 import numpy as np
+import pytesseract
 
-from src.extract_text import extract_text
 
-
-def extract_table(file, tables_dir, num_pages, src):
-    output_dir = os.path.join(tables_dir, file.replace(".jpg", ""))
-    os.makedirs(output_dir, exist_ok=True)
+def extract_tables(num_pages, src):
     grayed = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
-    scale = 120
+    scale = 60
     vertical, horizontal = get_lines(grayed, scale, num_pages * scale)
 
     mask = vertical + horizontal
 
-    joints = cv2.bitwise_and(horizontal, vertical)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    tables_found = 0
-    for i in range(len(contours)-1, -1, -1):
-        area = cv2.contourArea(contours[i])
-        if area < 100:
+    contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    return process_contours(contours, grayed, num_pages, mask)
+
+
+def process_contours(contours, grayed, num_pages, joints):
+    tables = []
+    image_area = (grayed.shape[0] / num_pages) * grayed.shape[1]
+    for contour in contours[::-1]:
+        area = cv2.contourArea(contour)
+        if area < 100 or area > 0.8 * image_area:
             continue
-        contour_poly = cv2.approxPolyDP(contours[i], 3, True)
-        bound_rect = cv2.boundingRect(contour_poly)
-        x, y, w, h = bound_rect
-        roi = joints[y:y+h, x:x+w]
-        joint_contours, _ = cv2.findContours(roi, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-        if len(joint_contours) <= 4 or h >= 0.75*(vertical.shape[0]/num_pages):
+        contour_poly = cv2.approxPolyDP(contour, 3, True)
+        x, y, w, h = cv2.boundingRect(contour_poly)
+        roi = joints[y:y + h, x:x + w]
+        joint_contours, _ = cv2.findContours(roi, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        if len(joint_contours) < 4:
             continue
 
-        tables_found += 1
-        table = extract_text(grayed[y:y + h, x:x + w], joint_contours)
-        table.to_csv(os.path.join(output_dir, "%s.csv" % tables_found), index=False, sep="|")
+        table = grayed[y:y + h, x:x + w]
+        table_con = joint_contours[0]
+        table_x = table_con[:, 0, 0]
+        table_max_x = np.max(table_x)
+        rows = []
+        cells = []
+        prev_top_left_bottom = None
+        for con in joint_contours[:0:-1]:
+            all_x = con[:, 0, 0]
+            all_y = con[:, 0, 1]
+            cell_min_x, cell_min_y = np.min(all_x), np.min(all_y)
+            cell_max_x, cell_max_y = np.max(all_x), np.max(all_y)
+
+            text = check_if_left_out(prev_top_left_bottom, cell_max_x, table_max_x, table)
+            if text is not None:
+                cells.append(text)
+                rows.append(cells)
+                cells = []
+
+            cell = table[cell_min_y:cell_max_y, cell_min_x:cell_max_x]
+            text = extract_text_from_cell(cell)
+            cells.append(text)
+            prev_top_left_bottom = (cell_min_y, cell_max_x, cell_max_y)
+            if table_max_x == cell_max_x:
+                rows.append(cells)
+                cells = []
+
+        text = check_if_left_out(prev_top_left_bottom, -1, table_max_x, table)
+        if text is not None:
+            cells.append(text)
+            rows.append(cells)
+
+        if len(rows) > 0:
+            common_len = mode(map(lambda r: len(r), rows))
+            extracted_table = list(filter(lambda r: len(r) == common_len, rows))
+            tables.append(extracted_table)
+
+    return tables
+
+
+def check_if_left_out(prev_top_left_bottom, cell_max_x, table_max_x, table):
+    if prev_top_left_bottom is not None and (cell_max_x < prev_top_left_bottom[1] != table_max_x):
+        left_out_min_y = prev_top_left_bottom[0]
+        left_out_min_x = prev_top_left_bottom[1]
+        left_out_max_y = prev_top_left_bottom[2]
+        left_out_cell = table[left_out_min_y:left_out_max_y, left_out_min_x:table_max_x]
+        text = extract_text_from_cell(left_out_cell)
+        return text
+    return None
+
+
+def extract_text_from_cell(image):
+    try:
+        (origH, origW) = image.shape[:2]
+        (newW, newH) = (int(origW * 1.2), int(origH * 1.2))
+        image = cv2.resize(image, (newW, newH))
+        image = cv2.threshold(image, 124, 255, cv2.THRESH_TRUNC)[1]
+        return pytesseract.image_to_string(image, config='--oem 1 --tessdata-dir "../resources/tessdata/" --psm 6')
+    except cv2.error:
+        return ""
 
 
 def get_lines(grayed, horizontal_scale, vertical_scale):
@@ -55,4 +113,3 @@ def get_lines(grayed, horizontal_scale, vertical_scale):
     vertical = np.roll(vertical, -5, axis=0)
 
     return vertical, horizontal
-

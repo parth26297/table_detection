@@ -1,4 +1,4 @@
-from statistics import mode
+from statistics import mode, StatisticsError
 
 import cv2
 import numpy as np
@@ -24,50 +24,67 @@ def process_contours(contours, grayed, num_pages, joints):
         if area < 100 or area > 0.8 * image_area:
             continue
         contour_poly = cv2.approxPolyDP(contour, 3, True)
+        c = 5
         x, y, w, h = cv2.boundingRect(contour_poly)
-        roi = joints[y:y + h, x:x + w]
-        joint_contours, _ = cv2.findContours(roi, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        if len(joint_contours) < 4:
+        left, right, top, bottom = x-c, x+w+2*c, y-c, y+h+2*c
+        roi = joints[top:bottom, left:right]
+        external_contours, _ = cv2.findContours(roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not (2 <= len(external_contours) < 4) or (w*h) < 80000:
             continue
 
-        table = grayed[y:y + h, x:x + w]
-        table_con = joint_contours[0]
-        table_x = table_con[:, 0, 0]
-        table_max_x = np.max(table_x)
-        rows = []
-        cells = []
-        prev_top_left_bottom = None
-        for con in joint_contours[:0:-1]:
-            all_x = con[:, 0, 0]
-            all_y = con[:, 0, 1]
-            cell_min_x, cell_min_y = np.min(all_x), np.min(all_y)
-            cell_max_x, cell_max_y = np.max(all_x), np.max(all_y)
+        table = grayed[top:bottom, left:right]
+        t_vertical, t_horizontal = get_lines(table, 30, 20)
+        # t_mask = t_horizontal + t_vertical
+        get_possible_tables(t_vertical, t_horizontal)
+        # cv2.imshow("table", t_mask)
+        # cv2.waitKey()
+        # cv2.destroyAllWindows()
+        # joint_contours, _ = cv2.findContours(roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # table_data = process_table(table, joint_contours)
+        # if table_data is not None and len(table) > 0:
+        #     tables.append(table_data)
+    return tables
 
-            text = check_if_left_out(prev_top_left_bottom, cell_max_x, table_max_x, table)
-            if text is not None:
-                cells.append(text)
-                rows.append(cells)
-                cells = []
 
-            cell = table[cell_min_y:cell_max_y, cell_min_x:cell_max_x]
-            text = extract_text_from_cell(cell)
-            cells.append(text)
-            prev_top_left_bottom = (cell_min_y, cell_max_x, cell_max_y)
-            if table_max_x == cell_max_x:
-                rows.append(cells)
-                cells = []
+def process_table(table, joint_contours):
+    table_con = joint_contours[0]
+    table_x = table_con[:, 0, 0]
+    table_max_x = np.max(table_x)
+    rows = []
+    cells = []
+    prev_top_left_bottom = None
+    for con in joint_contours[:0:-1]:
+        all_x = con[:, 0, 0]
+        all_y = con[:, 0, 1]
+        cell_min_x, cell_min_y = np.min(all_x), np.min(all_y)
+        cell_max_x, cell_max_y = np.max(all_x), np.max(all_y)
 
-        text = check_if_left_out(prev_top_left_bottom, -1, table_max_x, table)
+        text = check_if_left_out(prev_top_left_bottom, cell_max_x, table_max_x, table)
         if text is not None:
             cells.append(text)
             rows.append(cells)
+            cells = []
 
-        if len(rows) > 0:
+        cell = table[cell_min_y:cell_max_y, cell_min_x:cell_max_x]
+        text = extract_text_from_cell(cell)
+        cells.append(text)
+        prev_top_left_bottom = (cell_min_y, cell_max_x, cell_max_y)
+        if table_max_x == cell_max_x:
+            rows.append(cells)
+            cells = []
+
+    text = check_if_left_out(prev_top_left_bottom, -1, table_max_x, table)
+    if text is not None:
+        cells.append(text)
+        rows.append(cells)
+
+    if len(rows) > 0:
+        try:
             common_len = mode(map(lambda r: len(r), rows))
-            extracted_table = list(filter(lambda r: len(r) == common_len, rows))
-            tables.append(extracted_table)
-
-    return tables
+            return list(filter(lambda r: len(r) == common_len, rows))
+        except StatisticsError:
+            print("Error with mode!!")
+    return None
 
 
 def check_if_left_out(prev_top_left_bottom, cell_max_x, table_max_x, table):
@@ -113,3 +130,42 @@ def get_lines(grayed, horizontal_scale, vertical_scale):
     vertical = np.roll(vertical, -5, axis=0)
 
     return vertical, horizontal
+
+
+def get_possible_tables(vertical, horizontal, grayed=None, num_pages=None):
+    # mask = vertical + horizontal
+    # cv2.imwrite("temp.jpg", mask)
+    vertical_lines = cv2.HoughLinesP(vertical, 1, np.pi/180, 100)
+    horizontal_lines = cv2.HoughLinesP(horizontal, 1, np.pi/180, 100)
+
+    vertical_lines = sorted(vertical_lines, key=lambda x: x[0][0])
+    horizontal_lines = sorted(horizontal_lines, key=lambda x: -x[0][1])
+    [v_min_x, v_max_y] = vertical_lines[0][0][:2]
+    [v_max_x, v_min_y] = vertical_lines[len(vertical_lines)-1][0][2:]
+    if len(vertical_lines) < 3 and len(horizontal_lines) < 4:
+        return None
+
+    [h_min_x, h_max_y] = horizontal_lines[0][0][:2]
+    [h_max_x, h_min_y] = horizontal_lines[len(horizontal_lines) - 1][0][2:]
+    if abs(v_min_x - h_min_x) < 10 and abs(v_min_y - h_min_y) < 10:
+        h_roll = v_min_x - h_min_x
+        v_roll = h_min_y - v_min_y
+        hr = np.roll(horizontal, h_roll)
+        vr = np.roll(vertical, v_roll, axis=0)
+        cv2.imshow("new mask", hr+vr)
+        cv2.waitKey()
+        cv2.destroyAllWindows()
+        # left = min(v_min_x, h_min_x)
+        # top = min(v_min_y, h_min_y)
+        # right = max(v_max_x, h_max_x)
+        # bottom = max(v_max_y, h_max_y) if abs(v_max_y-h_max_y) < 10 else min(v_max_y, h_max_y)
+
+        # mini_hr = horizontal[top:bottom + 1, left:right + 1]
+        # mini_vr = vertical[top:bottom + 1, left:right + 1]
+        # mini_hr = np.roll(mini_hr, h_roll)
+        # mini_vr = np.roll(mini_vr,  v_roll, axis=0)
+        # roi_mask = mini_vr + mini_hr
+        # roi_table = grayed[top:bottom, left:right]
+        # table = test(roi_mask, roi_table)
+        # if table is not None:
+        #     tables.append(table)

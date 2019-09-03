@@ -20,6 +20,7 @@ if __name__ == '__main__':
                 for i, table in enumerate(tables):
                     with open(os.path.join(output_folder, "%s.json" % i), "w") as f:
                         json.dump(table, f)
+                print("processed %s" % file)
                 processed.append(file)
             else:
                 no_tables.append(file)
